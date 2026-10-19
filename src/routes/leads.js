@@ -179,16 +179,18 @@ router.post('/', async (req, res) => {
   const leadId = isUUID(payload.id) ? payload.id : randomUUID();
   const leadStage = payload.stage || 'new';
   const leadStatus = payload.status && payload.status !== 'new' ? payload.status : deriveStatusFromStage(leadStage);
+  const leadTitle = payload.title || payload.requirement || payload.contact_name || payload.company_name || 'New Lead Enquiry';
 
   const newLead = {
     id: leadId,
+    title: leadTitle,
     contact_name: payload.contact_name || payload.name || '',
     company_name: payload.company_name || '',
     phone: payload.phone || '',
     email: payload.email || '',
     whatsapp_number: payload.whatsapp_number || payload.phone || '',
     location: payload.location || payload.emirate || '',
-    requirement: payload.requirement || '',
+    requirement: payload.requirement || leadTitle,
     source: payload.source || 'website',
     source_detail: payload.source_detail || '',
     campaign: payload.campaign || '',
@@ -213,15 +215,45 @@ router.post('/', async (req, res) => {
   if (isUUID(payload.branch_id)) newLead.branch_id = payload.branch_id;
 
   if (supabase) {
-    if (!isUUID(newLead.branch_id)) {
-      try {
-        const { data: bData } = await supabase.from('branches').select('id').limit(1).single();
-        if (bData && bData.id) newLead.branch_id = bData.id;
-      } catch (e) {}
+    // 1. Resolve and ensure valid branch_id from branches table (branch_id is NOT NULL in Supabase)
+    let validBranchId = null;
+    if (isUUID(newLead.branch_id)) {
+      const { data: bCheck } = await supabase.from('branches').select('id').eq('id', newLead.branch_id).single();
+      if (bCheck && bCheck.id) validBranchId = bCheck.id;
+    }
+    if (!validBranchId) {
+      const bName = (newLead.branch || payload.branch || 'Dubai').toLowerCase();
+      const { data: bAll } = await supabase.from('branches').select('id, name, code');
+      if (bAll && bAll.length > 0) {
+        const matched = bAll.find(b =>
+          (b.name && b.name.toLowerCase().includes(bName)) ||
+          (b.code && b.code.toLowerCase() === bName) ||
+          (bName.includes('dubai') && b.code === 'DXB') ||
+          (bName.includes('rak') && b.code === 'RAK') ||
+          ((bName.includes('sharjah') || bName.includes('fzc')) && (b.code === 'FZC' || b.code === 'SHJ'))
+        );
+        validBranchId = matched ? matched.id : bAll[0].id;
+      }
+    }
+    if (validBranchId) newLead.branch_id = validBranchId;
+
+    // 2. Validate owner_id against profiles table (owner_id FK references profiles.id)
+    if (newLead.owner_id) {
+      const { data: pCheck } = await supabase.from('profiles').select('id').eq('id', newLead.owner_id).single();
+      if (!pCheck || !pCheck.id) {
+        delete newLead.owner_id;
+      }
+    }
+
+    // 3. Validate customer_id against customers table
+    if (newLead.customer_id) {
+      const { data: cCheck } = await supabase.from('customers').select('id').eq('id', newLead.customer_id).single();
+      if (!cCheck || !cCheck.id) {
+        delete newLead.customer_id;
+      }
     }
 
     let sanitized = { ...newLead };
-    // Remove null/empty optional foreign keys if invalid
     if (!sanitized.customer_id) delete sanitized.customer_id;
     if (!sanitized.owner_id) delete sanitized.owner_id;
 
@@ -236,24 +268,50 @@ router.post('/', async (req, res) => {
     let maxRetries = 10;
     while (error && maxRetries > 0) {
       maxRetries--;
-      console.warn('[Supabase Lead Insert Error]:', error.code, error.message, error.detail);
+      const fullErr = `${error.details || '' } ${error.detail || '' } ${error.message || '' }`;
+      console.warn('[Supabase Lead Insert Error]:', error.code, fullErr);
+
       if (error.code === 'PGRST204') {
-        const match = /Could not find the '(.+?)' column/.exec(error.message || '');
+        const match = /Could not find the '(.+?)' column/.exec(fullErr);
         if (match && match[1]) {
           delete sanitized[match[1]];
         } else break;
       } else if (error.code === '23503') {
-        // Foreign key violation detail: Key (column)=(val) is not present in table
-        const match = /Key \((.+?)\)=\((.+?)\) is not present in table/.exec(error.detail || error.message || '');
+        // Foreign key violation
+        const match = /Key \((.+?)\)=\((.+?)\) is not present in table/.exec(fullErr) ||
+                      /violates foreign key constraint "leads_(.+?)_fkey"/.exec(fullErr);
         if (match && match[1]) {
-          delete sanitized[match[1]];
+          const col = match[1];
+          if (col !== 'branch_id') {
+            delete sanitized[col];
+          }
         } else {
+          // Never delete branch_id as it has a NOT NULL constraint
           delete sanitized.owner_id;
-          delete sanitized.branch_id;
           delete sanitized.customer_id;
+          delete sanitized.contact_id;
+          delete sanitized.company_id;
+          delete sanitized.campaign_id;
+          delete sanitized.created_by;
         }
+      } else if (error.code === '23502') {
+        // Not null violation
+        const match = /null value in column "(.+?)"/.exec(fullErr);
+        if (match && match[1]) {
+          const col = match[1];
+          if (col === 'branch_id') {
+            const { data: bData } = await supabase.from('branches').select('id').limit(1).single();
+            if (bData && bData.id) sanitized.branch_id = bData.id;
+          } else if (col === 'title') {
+            sanitized.title = payload.title || payload.requirement || payload.contact_name || payload.company_name || 'New Lead';
+          } else if (col === 'source') {
+            sanitized.source = 'website';
+          } else if (col === 'status') {
+            sanitized.status = 'new';
+          }
+        } else break;
       } else if (error.code === '22P02') {
-        const match = /invalid input syntax for type (.+?): "(.+?)"/.exec(error.message || '');
+        const match = /invalid input syntax for type (.+?): "(.+?)"/.exec(fullErr);
         if (match) {
           const badVal = match[2];
           for (const k of Object.keys(sanitized)) {
@@ -272,6 +330,17 @@ router.post('/', async (req, res) => {
     if (!error && data) {
       console.log('[Supabase Lead Inserted Successfully]:', data.id);
       return res.status(201).json({ success: true, message: 'Lead & Customer created successfully in Supabase', data });
+    }
+
+    if (error) {
+      console.error('[Supabase Lead Final Error]:', error);
+      if (process.env.ENABLE_MOCK_FALLBACK !== 'true') {
+        return res.status(500).json({
+          success: false,
+          message: `Failed to save Lead to database: ${error.message || 'Database error'}`,
+          error: error.message
+        });
+      }
     }
   }
 
@@ -485,6 +554,25 @@ router.post('/:id/activities', async (req, res) => {
 
   store.activities.unshift(newActivity);
   return res.status(201).json({ success: true, message: 'Activity logged', data: newActivity });
+});
+
+
+// DELETE /api/leads/:id - Delete lead
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  if (supabase) {
+    try {
+      await supabase.from('leads').delete().eq('id', id);
+    } catch (e) {
+      console.warn('[Supabase Lead Delete Warning]:', e.message);
+    }
+  }
+
+  const index = store.leads.findIndex(l => l.id === id);
+  if (index !== -1) {
+    store.leads.splice(index, 1);
+  }
+  return res.json({ success: true, message: 'Lead deleted successfully' });
 });
 
 module.exports = router;
