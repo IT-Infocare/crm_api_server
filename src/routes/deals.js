@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { isUUID, resolveBranchId, normalizeLeadStage } = require('../utils/normalize');
+
+const DEAL_STAGES = ['site_survey', 'quotation_sent', 'negotiation', 'won', 'lost'];
 
 function deriveStatusFromStage(stage) {
   if (!stage) return 'new';
@@ -187,13 +190,18 @@ const createDealHandler = async (req, res) => {
 
   if (supabase) {
     try {
+      const stage = normalizeLeadStage(newDeal.stage);
       const sanitized = {
-        title: newDeal.title,
-        value: newDeal.amount,
-        stage: newDeal.stage.toLowerCase().replace(/ /g, '_'),
-        customer_name: newDeal.customer_name
+        branch_id: await resolveBranchId(supabase, payload.branch_id || newDeal.branch),
+        name: newDeal.company ? `${newDeal.title} - ${newDeal.company}` : newDeal.title,
+        value_aed: newDeal.amount,
+        stage: DEAL_STAGES.includes(stage) ? stage : 'site_survey',
+        probability: Math.max(0, Math.min(100, newDeal.probability)),
+        expected_close: String(newDeal.expected_close).slice(0, 10),
       };
-      await supabase.from('deals').insert([sanitized]);
+      if (isUUID(payload.lead_id)) sanitized.lead_id = payload.lead_id;
+      const { error } = await supabase.from('deals').insert([sanitized]);
+      if (error) console.error('[Supabase Deals Insert Error]:', error.code, error.message);
     } catch (e) {
       console.warn('[Supabase Deals Insert Warning]:', e.message);
     }

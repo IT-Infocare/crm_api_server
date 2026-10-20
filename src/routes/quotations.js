@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { isUUID, resolveBranchId } = require('../utils/normalize');
+
+const QUOTE_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'accepted', 'rejected', 'expired'];
 
 // GET /api/quotations - List quotations
 router.get('/', async (req, res) => {
@@ -73,13 +76,22 @@ router.post('/', async (req, res) => {
 
   if (supabase) {
     try {
-      const sanitized = {
-        number: newQuotation.quotation_number,
-        status: newQuotation.status.toLowerCase(),
-        total_aed: newQuotation.total_amount,
-        terms: newQuotation.terms
-      };
-      await supabase.from('quotations').insert([sanitized]);
+      // quotations.deal_id is NOT NULL: a quote can only be saved against an existing deal.
+      if (!isUUID(payload.deal_id)) {
+        console.warn('[Supabase Quotation Insert Skipped]: no deal_id (deals UUID) supplied; saved locally only');
+      } else {
+        const status = String(newQuotation.status).toLowerCase().replace(/\s+/g, '_');
+        const sanitized = {
+          branch_id: await resolveBranchId(supabase, payload.branch_id || payload.branch),
+          deal_id: payload.deal_id,
+          number: newQuotation.quotation_number,
+          status: QUOTE_STATUSES.includes(status) ? status : 'draft',
+          total_aed: newQuotation.total_amount,
+          terms: newQuotation.terms
+        };
+        const { error } = await supabase.from('quotations').insert([sanitized]);
+        if (error) console.error('[Supabase Quotation Insert Error]:', error.code, error.message);
+      }
     } catch (e) {
       console.warn('[Supabase Quotation Insert Notice]:', e.message);
     }

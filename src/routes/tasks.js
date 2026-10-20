@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { isUUID, resolveBranchId } = require('../utils/normalize');
 
 // GET /api/tasks - List tasks
 router.get('/', async (req, res) => {
@@ -75,12 +76,23 @@ router.post('/', async (req, res) => {
 
   if (supabase) {
     try {
-      const sanitized = {
-        title: newTask.title,
-        priority: newTask.priority,
-        status: newTask.status
-      };
-      await supabase.from('tasks').insert([sanitized]);
+      // tasks.assignee_id is NOT NULL and must be a user in profiles.
+      const assigneeId = [payload.assignee_id, payload.assigned_user_id].find(isUUID);
+      if (!assigneeId) {
+        console.warn('[Supabase Task Insert Skipped]: no assignee_id (profiles user UUID) supplied; saved locally only');
+      } else {
+        const status = String(newTask.status).toLowerCase();
+        const sanitized = {
+          branch_id: await resolveBranchId(supabase, payload.branch_id || payload.branch || newTask.location),
+          title: newTask.title,
+          due_at: newTask.due_date,
+          status: ['done', 'completed'].includes(status) || newTask.is_completed ? 'done' : status === 'cancelled' ? 'cancelled' : 'open',
+          assignee_id: assigneeId,
+        };
+        if (isUUID(newTask.lead_id)) sanitized.lead_id = newTask.lead_id;
+        const { error } = await supabase.from('tasks').insert([sanitized]);
+        if (error) console.error('[Supabase Task Insert Error]:', error.code, error.message);
+      }
     } catch (e) {
       console.warn('[Supabase Task Insert Notice]:', e.message);
     }

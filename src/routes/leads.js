@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { resolveBranchId, normalizeLeadSource, normalizeLeadStage, normalizeActivityType } = require('../utils/normalize');
 
 // GET /api/leads - List leads with search, filter, pagination
 router.get('/', async (req, res) => {
@@ -117,6 +118,14 @@ router.get('/:id', async (req, res) => {
 const { randomUUID } = require('crypto');
 const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
+const LEAD_COLUMNS = new Set([
+  'id', 'branch_id', 'contact_id', 'company_id', 'campaign_id', 'title', 'requirement', 'product_interest',
+  'source', 'source_detail', 'external_ref', 'status', 'owner_id', 'ai_summary', 'ai_category', 'ai_urgency',
+  'duplicate_of', 'first_response_at', 'latitude', 'longitude', 'created_at', 'customer_id', 'contact_name',
+  'company_name', 'phone', 'email', 'whatsapp_number', 'location', 'campaign', 'captured_by', 'owner_name',
+  'branch', 'estimated_value', 'stage', 'ai_next_step', 'ai_draft_reply', 'is_duplicate',
+]);
+
 function deriveStatusFromStage(stage) {
   if (!stage) return 'new';
   switch (stage.toLowerCase()) {
@@ -177,7 +186,7 @@ router.post('/', async (req, res) => {
 
   delete payload.create_customer;
   const leadId = isUUID(payload.id) ? payload.id : randomUUID();
-  const leadStage = payload.stage || 'new';
+  const leadStage = normalizeLeadStage(payload.stage || 'new');
   const leadStatus = payload.status && payload.status !== 'new' ? payload.status : deriveStatusFromStage(leadStage);
   const leadTitle = payload.title || payload.requirement || payload.contact_name || payload.company_name || 'New Lead Enquiry';
 
@@ -191,8 +200,9 @@ router.post('/', async (req, res) => {
     whatsapp_number: payload.whatsapp_number || payload.phone || '',
     location: payload.location || payload.emirate || '',
     requirement: payload.requirement || leadTitle,
-    source: payload.source || 'website',
-    source_detail: payload.source_detail || '',
+    source: normalizeLeadSource(payload.source),
+    // Keep the client's original wording when it isn't already an enum value.
+    source_detail: payload.source_detail || (payload.source && normalizeLeadSource(payload.source) !== payload.source ? payload.source : ''),
     campaign: payload.campaign || '',
     captured_by: payload.captured_by || '',
     owner_name: payload.owner_name || '',
@@ -215,26 +225,8 @@ router.post('/', async (req, res) => {
   if (isUUID(payload.branch_id)) newLead.branch_id = payload.branch_id;
 
   if (supabase) {
-    // 1. Resolve and ensure valid branch_id from branches table (branch_id is NOT NULL in Supabase)
-    let validBranchId = null;
-    if (isUUID(newLead.branch_id)) {
-      const { data: bCheck } = await supabase.from('branches').select('id').eq('id', newLead.branch_id).single();
-      if (bCheck && bCheck.id) validBranchId = bCheck.id;
-    }
-    if (!validBranchId) {
-      const bName = (newLead.branch || payload.branch || 'Dubai').toLowerCase();
-      const { data: bAll } = await supabase.from('branches').select('id, name, code');
-      if (bAll && bAll.length > 0) {
-        const matched = bAll.find(b =>
-          (b.name && b.name.toLowerCase().includes(bName)) ||
-          (b.code && b.code.toLowerCase() === bName) ||
-          (bName.includes('dubai') && b.code === 'DXB') ||
-          (bName.includes('rak') && b.code === 'RAK') ||
-          ((bName.includes('sharjah') || bName.includes('fzc')) && (b.code === 'FZC' || b.code === 'SHJ'))
-        );
-        validBranchId = matched ? matched.id : bAll[0].id;
-      }
-    }
+    // 1. branch_id is NOT NULL + FK in Supabase: resolve it from the UUID or branch name.
+    const validBranchId = await resolveBranchId(supabase, newLead.branch_id || newLead.branch || payload.branch);
     if (validBranchId) newLead.branch_id = validBranchId;
 
     // 2. Validate owner_id against profiles table (owner_id FK references profiles.id)
@@ -353,13 +345,26 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const payload = req.body;
 
+  if (payload.stage) payload.stage = normalizeLeadStage(payload.stage);
+  if (payload.source) payload.source = normalizeLeadSource(payload.source);
   if (payload.stage && !payload.status) {
     payload.status = deriveStatusFromStage(payload.stage);
   }
 
   if (supabase) {
-    const { data, error } = await supabase.from('leads').update(payload).eq('id', id).select().single();
+    // Only send real columns; clients include extras like assigned_ago.
+    const update = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (LEAD_COLUMNS.has(k) && k !== 'id' && k !== 'created_at') update[k] = v;
+    }
+    if (update.branch_id || update.branch) {
+      update.branch_id = await resolveBranchId(supabase, update.branch_id || update.branch);
+    }
+    const { data, error } = await supabase.from('leads').update(update).eq('id', id).select().single();
     if (!error && data) return res.json({ success: true, message: 'Lead updated successfully', data });
+    if (error && error.code !== 'PGRST116' && error.code !== '22P02') {
+      console.error('[Supabase Lead Update Error]:', error.code, error.message);
+    }
   }
 
   const index = store.leads.findIndex(l => l.id === id);
@@ -430,7 +435,7 @@ router.get('/:id/activities', async (req, res) => {
       // 1. Fetch custom logged activities
       const { data: actData } = await supabase.from('activities').select('*').eq('lead_id', id);
       if (actData && actData.length > 0) {
-        list = actData;
+        list = actData.map(a => ({ ...a, description: a.description || a.summary }));
       }
 
       // 2. Fetch lead info for auto-generated timeline events
@@ -543,13 +548,30 @@ router.post('/:id/activities', async (req, res) => {
     created_at: new Date().toISOString()
   };
 
-  if (supabase) {
+  if (supabase && isUUID(id)) {
     try {
-      const { data, error } = await supabase.from('activities').insert([newActivity]).select().single();
+      // activities needs the lead's branch_id, a valid activity_type and a summary.
+      const { data: lead } = await supabase.from('leads').select('branch_id, branch').eq('id', id).single();
+      const row = {
+        branch_id: await resolveBranchId(supabase, (lead && lead.branch_id) || (lead && lead.branch)),
+        lead_id: id,
+        type: normalizeActivityType(type),
+        summary: description || type || 'Activity',
+        body: created_by ? `Logged by ${created_by}` : null,
+        occurred_at: newActivity.created_at,
+      };
+      const { data, error } = await supabase.from('activities').insert([row]).select().single();
       if (!error && data) {
-        return res.status(201).json({ success: true, message: 'Activity logged', data });
+        return res.status(201).json({
+          success: true,
+          message: 'Activity logged',
+          data: { ...data, description: data.summary, created_by: newActivity.created_by }
+        });
       }
-    } catch (e) {}
+      if (error) console.error('[Supabase Activity Insert Error]:', error.code, error.message);
+    } catch (e) {
+      console.error('[Supabase Activity Insert Error]:', e.message);
+    }
   }
 
   store.activities.unshift(newActivity);
