@@ -6,6 +6,7 @@ const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
 const customerRoutes = require('./routes/customers');
 const quotationRoutes = require('./routes/quotations');
+const visitRoutes = require('./routes/visits');
 const dealRoutes = require('./routes/deals');
 const taskRoutes = require('./routes/tasks');
 const campaignRoutes = require('./routes/campaigns');
@@ -35,30 +36,32 @@ const healthHandler = (req, res) => {
     timestamp: new Date().toISOString()
   });
 };
+app.get('/', healthHandler);
 app.get('/health', healthHandler);
 app.get('/api/health', healthHandler);
-
 
 // API Routes Registration
 const prefix = process.env.API_PREFIX || '/api';
 
-app.use(`${prefix}/auth`, authRoutes);
-app.use(`${prefix}/users`, userRoutes);
-app.use(`${prefix}/companies`, companyRoutes);
-app.use(`${prefix}/branches`, branchRoutes);
-app.use(`${prefix}/settings/branches`, branchRoutes);
-app.use(`${prefix}/leads`, leadRoutes);
-app.use(`${prefix}/customers`, customerRoutes);
-app.use(`${prefix}/quotations`, quotationRoutes);
-app.use(`${prefix}`, dealRoutes); // Handles /deals and /pipeline
-app.use(`${prefix}/tasks`, taskRoutes);
-app.use(`${prefix}/campaigns`, campaignRoutes);
-app.use(`${prefix}/products`, productRoutes);
-app.use(`${prefix}/product-bundles`, productRoutes);
-app.use(`${prefix}/dashboard`, dashboardRoutes);
-app.use(`${prefix}/reports`, reportRoutes);
-app.use(`${prefix}/settings`, settingsRoutes);
-app.use(`${prefix}/files`, fileRoutes);
+app.use(prefix + '/auth', authRoutes);
+app.use(prefix + '/users', userRoutes);
+app.use(prefix + '/companies', companyRoutes);
+app.use(prefix + '/branches', branchRoutes);
+app.use(prefix + '/settings/branches', branchRoutes);
+app.use(prefix + '/leads', leadRoutes);
+app.use(prefix + '/customers', customerRoutes);
+app.use(prefix + '/quotations', quotationRoutes);
+app.use(prefix + '/visits', visitRoutes);
+app.use(prefix + '/deals', dealRoutes);
+app.use(prefix + '/pipeline', dealRoutes);
+app.use(prefix + '/tasks', taskRoutes);
+app.use(prefix + '/campaigns', campaignRoutes);
+app.use(prefix + '/products', productRoutes);
+app.use(prefix + '/product-bundles', productRoutes);
+app.use(prefix + '/dashboard', dashboardRoutes);
+app.use(prefix + '/reports', reportRoutes);
+app.use(prefix + '/settings', settingsRoutes);
+app.use(prefix + '/files', fileRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -74,7 +77,7 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `API endpoint not found: ${req.method} ${req.originalUrl}`
+    message: 'API endpoint not found: ' + req.method + ' ' + req.originalUrl
   });
 });
 

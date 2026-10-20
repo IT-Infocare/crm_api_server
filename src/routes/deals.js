@@ -1,15 +1,67 @@
 const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
-
 const { supabase } = require('../config/db');
 
-// GET /api/deals - List deals
-router.get('/', (req, res) => {
-  return res.json({ success: true, data: store.deals });
-});
+function deriveStatusFromStage(stage) {
+  if (!stage) return 'new';
+  switch (stage.toLowerCase()) {
+    case 'new':
+      return 'new';
+    case 'contacted':
+    case 'site_survey':
+    case 'site survey':
+      return 'contacted';
+    case 'quotation_sent':
+    case 'proposal sent':
+    case 'proposal':
+    case 'negotiation':
+      return 'qualified';
+    case 'won':
+      return 'converted';
+    case 'lost':
+      return 'disqualified';
+    default:
+      return 'new';
+  }
+}
 
-// GET /api/pipeline - Get deal pipeline grouped by stages
+// GET /api/deals and /api/deals/list
+const getDealsHandler = async (req, res) => {
+  const { branch, search, stage } = req.query;
+
+  if (supabase) {
+    try {
+      let query = supabase.from('deals').select('*');
+      if (stage && stage !== 'All') query = query.eq('stage', stage);
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        return res.json({ success: true, data });
+      }
+    } catch (e) {
+      console.warn('[Supabase Deals Query Notice]:', e.message);
+    }
+  }
+
+  let list = [...(store.deals || [])];
+  if (branch && branch !== 'All') {
+    list = list.filter(d => (d.branch || '').toLowerCase() === branch.toLowerCase());
+  }
+  if (stage && stage !== 'All') {
+    list = list.filter(d => (d.stage || '').toLowerCase() === stage.toLowerCase());
+  }
+  if (search) {
+    const q = search.toLowerCase();
+    list = list.filter(d => (d.title && d.title.toLowerCase().includes(q)) || (d.company && d.company.toLowerCase().includes(q)) || (d.customer_name && d.customer_name.toLowerCase().includes(q)));
+  }
+
+  return res.json({ success: true, data: list });
+};
+
+router.get('/', getDealsHandler);
+router.get('/deals', getDealsHandler);
+
+// GET /api/pipeline - Pipeline view
 router.get('/pipeline', async (req, res) => {
   const { branch } = req.query;
 
@@ -27,7 +79,6 @@ router.get('/pipeline', async (req, res) => {
 
       if (!error && leadsData) {
         const deals = leadsData.map(l => {
-          // Check if lead has a pending site survey task
           const compName = (l.company_name || '').toLowerCase();
           const contName = (l.contact_name || '').toLowerCase();
 
@@ -46,10 +97,14 @@ router.get('/pipeline', async (req, res) => {
           return {
             id: l.id,
             lead_id: l.id,
+            title: l.requirement ? (l.company_name ? (l.company_name + ' - ' + l.requirement) : l.requirement) : (l.company_name || 'Commercial Deal'),
             customer_name: l.contact_name || l.company_name || 'Client',
-            company_name: l.company_name,
+            company: l.company_name || '',
+            company_name: l.company_name || '',
             requirement: l.requirement || '',
             estimated_value: parseFloat(l.estimated_value) || 0,
+            amount: parseFloat(l.estimated_value) || 0,
+            probability: 70,
             owner_name: l.owner_name || 'Unassigned',
             source: l.source || 'website',
             stage: currentStage,
@@ -62,7 +117,7 @@ router.get('/pipeline', async (req, res) => {
         return res.json({ success: true, data: deals });
       }
     } catch (e) {
-      console.error('[Pipeline Supabase Error]:', e);
+      console.warn('[Pipeline Supabase Error]:', e);
     }
   }
 
@@ -72,7 +127,7 @@ router.get('/pipeline', async (req, res) => {
     const hasPendingSiteSurvey = tasksList.some(t => 
       (t.lead_id === l.id || (t.related_to_title && t.related_to_title.includes(l.company_name || l.contact_name))) &&
       t.status !== 'completed' &&
-      t.title.toLowerCase().includes('site survey')
+      (t.title || '').toLowerCase().includes('site survey')
     );
 
     let currentStage = l.stage || 'new';
@@ -84,10 +139,14 @@ router.get('/pipeline', async (req, res) => {
     return {
       id: l.id,
       lead_id: l.id,
+      title: l.requirement ? (l.company_name ? (l.company_name + ' - ' + l.requirement) : l.requirement) : (l.company_name || 'Commercial Deal'),
       customer_name: l.contact_name || l.company_name || 'Client',
-      company_name: l.company_name,
+      company: l.company_name || '',
+      company_name: l.company_name || '',
       requirement: l.requirement || '',
       estimated_value: parseFloat(l.estimated_value) || 0,
+      amount: parseFloat(l.estimated_value) || 0,
+      probability: 70,
       owner_name: l.owner_name || 'Unassigned',
       source: l.source || 'website',
       stage: currentStage,
@@ -100,55 +159,110 @@ router.get('/pipeline', async (req, res) => {
   return res.json({ success: true, data: deals });
 });
 
-// POST /api/deals - Create deal
-router.post('/', (req, res) => {
+// GET /api/deals/:id
+const getSingleDeal = (req, res) => {
+  const { id } = req.params;
+  const deal = store.deals.find(d => d.id === id);
+  if (!deal) return res.status(404).json({ success: false, message: 'Deal not found' });
+  return res.json({ success: true, data: deal });
+};
+router.get('/:id', getSingleDeal);
+router.get('/deals/:id', getSingleDeal);
+
+// POST /api/deals
+const createDealHandler = async (req, res) => {
   const payload = req.body;
   const newDeal = {
-    id: `deal_${Date.now()}`,
+    id: payload.id || 'deal_' + Date.now(),
     title: payload.title || 'New Deal',
-    value: payload.value || 0,
-    stage: payload.stage || 'new',
-    customer_name: payload.customer_name || '',
-    created_at: new Date().toISOString()
+    company: payload.company || payload.company_name || payload.customer_name || '',
+    customer_name: payload.customer_name || payload.company || '',
+    stage: payload.stage || 'Site Survey',
+    amount: parseFloat(payload.amount || payload.value || payload.estimated_value) || 0,
+    probability: parseInt(payload.probability, 10) || 60,
+    branch: payload.branch || 'Dubai',
+    expected_close: payload.expected_close || new Date(Date.now() + 14 * 86400000).toISOString(),
+    created_at: payload.created_at || new Date().toISOString()
   };
-  store.deals.unshift(newDeal);
-  return res.status(201).json({ success: true, message: 'Deal created', data: newDeal });
-});
 
-// PUT /api/deals/:id - Update deal
-router.put('/:id', (req, res) => {
-  const { id } = req.params;
-  const index = store.deals.findIndex(d => d.id === id);
-  if (index === -1) return res.status(404).json({ success: false, message: 'Deal not found' });
-  store.deals[index] = { ...store.deals[index], ...req.body };
-  return res.json({ success: true, message: 'Deal updated', data: store.deals[index] });
-});
-
-function deriveStatusFromStage(stage) {
-  if (!stage) return 'new';
-  switch (stage.toLowerCase()) {
-    case 'new':
-      return 'new';
-    case 'contacted':
-    case 'site_survey':
-      return 'contacted';
-    case 'quotation_sent':
-    case 'negotiation':
-      return 'qualified';
-    case 'won':
-      return 'converted';
-    case 'lost':
-      return 'disqualified';
-    default:
-      return 'new';
+  if (supabase) {
+    try {
+      const sanitized = {
+        title: newDeal.title,
+        value: newDeal.amount,
+        stage: newDeal.stage.toLowerCase().replace(/ /g, '_'),
+        customer_name: newDeal.customer_name
+      };
+      await supabase.from('deals').insert([sanitized]);
+    } catch (e) {
+      console.warn('[Supabase Deals Insert Warning]:', e.message);
+    }
   }
-}
 
-// PATCH /api/pipeline/deals/:id/stage - Update deal stage in pipeline
-router.patch('/pipeline/deals/:id/stage', async (req, res) => {
+  store.deals.unshift(newDeal);
+  return res.status(201).json({ success: true, message: 'Deal created successfully', data: newDeal });
+};
+
+router.post('/', createDealHandler);
+router.post('/deals', createDealHandler);
+
+// PUT /api/deals/:id
+const updateDealHandler = async (req, res) => {
+  const { id } = req.params;
+  const payload = req.body;
+
+  if (supabase) {
+    try {
+      await supabase.from('deals').update(payload).eq('id', id);
+    } catch (e) {
+      console.warn('[Supabase Deals Update Warning]:', e.message);
+    }
+  }
+
+  const index = store.deals.findIndex(d => d.id === id);
+  if (index !== -1) {
+    store.deals[index] = { ...store.deals[index], ...payload };
+    return res.json({ success: true, message: 'Deal updated successfully', data: store.deals[index] });
+  }
+
+  const lead = (store.leads || []).find(l => l.id === id);
+  if (lead) {
+    if (payload.stage) lead.stage = payload.stage;
+    if (payload.amount) lead.estimated_value = payload.amount;
+    return res.json({ success: true, message: 'Deal updated successfully', data: lead });
+  }
+
+  return res.status(404).json({ success: false, message: 'Deal not found' });
+};
+
+router.put('/:id', updateDealHandler);
+router.put('/deals/:id', updateDealHandler);
+
+// DELETE /api/deals/:id
+const deleteDealHandler = async (req, res) => {
+  const { id } = req.params;
+  if (supabase) {
+    try {
+      await supabase.from('deals').delete().eq('id', id);
+    } catch (e) {
+      console.warn('[Supabase Deals Delete Warning]:', e.message);
+    }
+  }
+
+  const index = store.deals.findIndex(d => d.id === id);
+  if (index !== -1) {
+    store.deals.splice(index, 1);
+  }
+  return res.json({ success: true, message: 'Deal deleted successfully' });
+};
+
+router.delete('/:id', deleteDealHandler);
+router.delete('/deals/:id', deleteDealHandler);
+
+// PATCH /api/pipeline/deals/:id/stage
+const updateStageHandler = async (req, res) => {
   const { id } = req.params;
   const { stage, lost_reason } = req.body;
-
   const derivedStatus = deriveStatusFromStage(stage);
 
   if (supabase) {
@@ -167,7 +281,7 @@ router.patch('/pipeline/deals/:id/stage', async (req, res) => {
         return res.json({ success: true, message: 'Deal stage updated', data });
       }
     } catch (e) {
-      console.error('[Update Stage Supabase Error]:', e);
+      console.warn('[Update Stage Supabase Warning]:', e.message);
     }
   }
 
@@ -180,6 +294,10 @@ router.patch('/pipeline/deals/:id/stage', async (req, res) => {
   }
 
   return res.status(404).json({ success: false, message: 'Deal not found' });
-});
+};
+
+router.patch('/pipeline/deals/:id/stage', updateStageHandler);
+router.patch('/deals/:id/stage', updateStageHandler);
+router.patch('/:id/stage', updateStageHandler);
 
 module.exports = router;

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: infocarecrm
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PREFIX
+        value: /api
+      - key: SUPABASE_URL
+        value: https://hqijrtdyvtaclifrbuuc.supabase.co
+      - key: SUPABASE_KEY
+        value: sb_publishable_PLLzTvDBomit6CvtkO-EiA_KQZxKtD4
+      - key: ENABLE_MOCK_FALLBACK
+        value: "true"

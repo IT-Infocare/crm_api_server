@@ -220,7 +220,41 @@ let settings = {
   enable_ai_suggestions: true,
 };
 
+let visits = [
+  {
+    id: 'vst_01',
+    company_or_site: 'Al Noor Villas',
+    contact_name: 'Rashid',
+    mobile: '+971 50 444 8899',
+    interests: ['CCTV', 'Access control'],
+    notes: 'Villa renovation project, requires 8 IP dome cameras.',
+    photo_count: 2,
+    has_voice_note: false,
+    voice_note_duration_seconds: 0,
+    location_address: 'Al Barsha, Dubai',
+    branch: 'Dubai',
+    is_synced: true,
+    created_at: new Date(Date.now() - 3600000).toISOString()
+  },
+  {
+    id: 'vst_02',
+    company_or_site: 'Emirates Logistics',
+    contact_name: 'Mohamed Tariq',
+    mobile: '+971 55 987 6543',
+    interests: ['CCTV', 'Intercom'],
+    notes: 'Warehouse survey completed. Client requested quote by Thursday.',
+    photo_count: 3,
+    has_voice_note: true,
+    voice_note_duration_seconds: 45,
+    location_address: 'Warehouse 14, Jebel Ali Industrial, Dubai',
+    branch: 'Dubai',
+    is_synced: true,
+    created_at: new Date(Date.now() - 7200000).toISOString()
+  }
+];
+
 module.exports = {
+  visits,
   leads,
   customers,
   quotations,
