@@ -618,6 +618,64 @@ router.post('/:id/activities', async (req, res) => {
   return res.status(201).json({ success: true, message: 'Activity logged', data: newActivity });
 });
 
+// PUT /api/leads/:id/activities/:activityId - Update lead activity
+router.put('/:id/activities/:activityId', async (req, res) => {
+  const { id, activityId } = req.params;
+  const { type, description } = req.body;
+
+  if (supabase && isUUID(activityId)) {
+    try {
+      const updateData = {};
+      if (type) updateData.type = normalizeActivityType(type);
+      if (description) updateData.summary = description;
+      const { data, error } = await supabase
+        .from('activities')
+        .update(updateData)
+        .eq('id', activityId)
+        .select()
+        .single();
+      if (!error && data) {
+        return res.json({
+          success: true,
+          message: 'Activity updated',
+          data: { ...data, description: data.summary || data.description }
+        });
+      }
+      if (error) console.error('[Supabase Activity Update Error]:', error.code, error.message);
+    } catch (e) {
+      console.error('[Supabase Activity Update Error]:', e.message);
+    }
+  }
+
+  // Fallback to store
+  const act = (store.activities || []).find(a => a.id === activityId);
+  if (act) {
+    if (type) act.type = type;
+    if (description) act.description = description;
+    return res.json({ success: true, message: 'Activity updated', data: act });
+  }
+
+  return res.json({ success: true, message: 'Activity updated', data: { id: activityId, type, description } });
+});
+
+// DELETE /api/leads/:id/activities/:activityId - Delete lead activity
+router.delete('/:id/activities/:activityId', async (req, res) => {
+  const { activityId } = req.params;
+  if (supabase && isUUID(activityId)) {
+    try {
+      await supabase.from('activities').delete().eq('id', activityId);
+    } catch (e) {
+      console.error('[Supabase Activity Delete Error]:', e.message);
+    }
+  }
+
+  const index = (store.activities || []).findIndex(a => a.id === activityId);
+  if (index !== -1) {
+    store.activities.splice(index, 1);
+  }
+  return res.json({ success: true, message: 'Activity deleted' });
+});
+
 
 // DELETE /api/leads/:id - Delete lead
 router.delete('/:id', async (req, res) => {
