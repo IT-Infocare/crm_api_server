@@ -118,8 +118,8 @@ async function findOrCreateLeadId(v, branchId) {
     latitude: validLat,
     longitude: validLon,
     source: 'direct_visit',
-    status: 'contacted',
-    stage: 'site_survey',
+    status: 'new',
+    stage: 'new',
   }]).select('id').single();
   if (error) {
     console.error('[Supabase Visit Lead Create Error]:', error.code, error.message);

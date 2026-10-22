@@ -61,18 +61,28 @@ const getDealsHandler = async (req, res) => {
   return res.json({ success: true, data: list });
 };
 
-router.get('/', getDealsHandler);
-router.get('/deals', getDealsHandler);
-
 // GET /api/pipeline - Pipeline view
-router.get('/pipeline', async (req, res) => {
+const getPipelineHandler = async (req, res) => {
   const { branch } = req.query;
 
   if (supabase) {
     try {
       let query = supabase.from('leads').select('*').order('created_at', { ascending: false });
       if (branch && branch !== 'All') {
-        query = query.eq('branch', branch);
+        const b = branch.toUpperCase().trim();
+        if (b === 'DXB' || b === 'DUBAI' || b.includes('DXB') || b.includes('DUBAI')) {
+          query = query.in('branch', ['DXB', 'Dubai', 'InfoCare System Dubai', 'Dubai HQ Office', 'Infocare Surveillance Systems LLC — Dubai', 'Infocare Surveillance Systems LLC Dubai', 'INFOCARE DXB']);
+        } else if (b === 'RAK' || b === 'RAS AL KHAIMAH' || b.includes('RAK')) {
+          query = query.in('branch', ['RAK', 'Ras Al Khaimah', 'Infocare Surveillance Systems LLC — RAK', 'INFOCARE RAK']);
+        } else if (b === 'SHJ' || b === 'SHARJAH' || b === 'FZC' || b.includes('SHARJAH') || b.includes('FZC')) {
+          query = query.in('branch', ['SHJ', 'Sharjah', 'InfoCare Systems Sharjah', 'FZC', 'Infocare Systems FZC', 'INFOCARE FZC']);
+        } else if (b === 'KER' || b === 'KERALA' || b.includes('KERALA')) {
+          query = query.in('branch', ['KER', 'Kerala', 'Infocare Back Office — Kerala']);
+        } else if (b === 'IRQ' || b === 'IRAQ' || b.includes('IRAQ')) {
+          query = query.in('branch', ['IRQ', 'Iraq', 'InfoCare System Iraq']);
+        } else {
+          query = query.or('branch.eq.' + branch + ',branch.ilike.%' + branch + '%');
+        }
       }
       const { data: leadsData, error } = await query;
 
@@ -160,7 +170,16 @@ router.get('/pipeline', async (req, res) => {
     };
   });
   return res.json({ success: true, data: deals });
+};
+
+router.get('/', (req, res, next) => {
+  if (req.baseUrl && req.baseUrl.endsWith('/pipeline')) {
+    return getPipelineHandler(req, res);
+  }
+  return getDealsHandler(req, res);
 });
+router.get('/pipeline', getPipelineHandler);
+router.get('/deals', getDealsHandler);
 
 // GET /api/deals/:id
 const getSingleDeal = (req, res) => {
