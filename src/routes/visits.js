@@ -94,6 +94,16 @@ async function findOrCreateLeadId(v, branchId) {
     if (data && data.length) return data[0].id;
   }
 
+  const lat = v.latitude != null && v.latitude !== '' ? Number(v.latitude) : null;
+  const lon = v.longitude != null && v.longitude !== '' ? Number(v.longitude) : null;
+  const validLat = lat != null && !isNaN(lat) ? lat : null;
+  const validLon = lon != null && !isNaN(lon) ? lon : null;
+
+  let leadLocation = (v.location_address || '').trim();
+  if (!leadLocation && validLat != null && validLon != null) {
+    leadLocation = `${validLat.toFixed(5)}, ${validLon.toFixed(5)}`;
+  }
+
   const requirement = [(v.interests || []).join(', '), v.notes].filter(Boolean).join(' - ') || 'Field visit';
   const { data, error } = await supabase.from('leads').insert([{
     branch_id: branchId,
@@ -104,7 +114,9 @@ async function findOrCreateLeadId(v, branchId) {
     company_name: v.company_or_site || '',
     phone: v.mobile || '',
     whatsapp_number: v.mobile || '',
-    location: v.location_address || '',
+    location: leadLocation,
+    latitude: validLat,
+    longitude: validLon,
     source: 'direct_visit',
     status: 'contacted',
     stage: 'site_survey',

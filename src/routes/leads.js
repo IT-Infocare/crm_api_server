@@ -190,6 +190,28 @@ router.post('/', async (req, res) => {
   const leadStatus = payload.status && payload.status !== 'new' ? payload.status : deriveStatusFromStage(leadStage);
   const leadTitle = payload.title || payload.requirement || payload.contact_name || payload.company_name || 'New Lead Enquiry';
 
+  // Extract and validate device GPS coordinates
+  const lat = payload.latitude != null && payload.latitude !== '' ? Number(payload.latitude) : null;
+  const lon = payload.longitude != null && payload.longitude !== '' ? Number(payload.longitude) : null;
+  const validLat = lat != null && !isNaN(lat) ? lat : null;
+  const validLon = lon != null && !isNaN(lon) ? lon : null;
+
+  // The location on the lead should always take the current device location based on GPS, not based on the branch.
+  let locationStr = (payload.location || payload.emirate || '').trim();
+  const branchName = (payload.branch || '').trim().toLowerCase();
+
+  const isBranchValue = !locationStr ||
+    (branchName && (locationStr.toLowerCase() === branchName || locationStr.toLowerCase() === `${branchName}, uae`)) ||
+    ['dubai', 'dubai, uae', 'rak', 'ras al khaimah', 'sharjah', 'sharjah, uae', 'dxb', 'fzc', 'abu dhabi'].includes(locationStr.toLowerCase());
+
+  if (validLat != null && validLon != null) {
+    if (!locationStr || isBranchValue) {
+      locationStr = `${validLat.toFixed(5)}, ${validLon.toFixed(5)}`;
+    }
+  } else if (isBranchValue) {
+    locationStr = payload.location && !isBranchValue ? payload.location : '';
+  }
+
   const newLead = {
     id: leadId,
     title: leadTitle,
@@ -198,7 +220,9 @@ router.post('/', async (req, res) => {
     phone: payload.phone || '',
     email: payload.email || '',
     whatsapp_number: payload.whatsapp_number || payload.phone || '',
-    location: payload.location || payload.emirate || '',
+    location: locationStr,
+    latitude: validLat,
+    longitude: validLon,
     requirement: payload.requirement || leadTitle,
     source: normalizeLeadSource(payload.source),
     // Keep the client's original wording when it isn't already an enum value.
@@ -349,6 +373,22 @@ router.put('/:id', async (req, res) => {
   if (payload.source) payload.source = normalizeLeadSource(payload.source);
   if (payload.stage && !payload.status) {
     payload.status = deriveStatusFromStage(payload.stage);
+  }
+
+  if (payload.latitude !== undefined) {
+    const lat = payload.latitude != null && payload.latitude !== '' ? Number(payload.latitude) : null;
+    payload.latitude = lat != null && !isNaN(lat) ? lat : null;
+  }
+  if (payload.longitude !== undefined) {
+    const lon = payload.longitude != null && payload.longitude !== '' ? Number(payload.longitude) : null;
+    payload.longitude = lon != null && !isNaN(lon) ? lon : null;
+  }
+  if (payload.latitude != null && payload.longitude != null) {
+    const bName = (payload.branch || '').trim().toLowerCase();
+    const loc = (payload.location || '').trim().toLowerCase();
+    if (!loc || loc === bName || loc === `${bName}, uae` || ['dubai', 'dubai, uae', 'rak', 'sharjah'].includes(loc)) {
+      payload.location = `${payload.latitude.toFixed(5)}, ${payload.longitude.toFixed(5)}`;
+    }
   }
 
   if (supabase) {
