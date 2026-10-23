@@ -107,7 +107,33 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   if (supabase) {
     const { data, error } = await supabase.from('leads').select('*').eq('id', id).single();
-    if (!error && data) return res.json({ success: true, data });
+    if (!error && data) {
+      if ((data.latitude == null || data.longitude == null || !data.location) && isUUID(id)) {
+        try {
+          const { data: act } = await supabase
+            .from('activities')
+            .select('latitude, longitude, body')
+            .eq('lead_id', id)
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .order('occurred_at', { ascending: false })
+            .limit(1);
+          if (act && act.length > 0) {
+            if (data.latitude == null) data.latitude = Number(act[0].latitude);
+            if (data.longitude == null) data.longitude = Number(act[0].longitude);
+            if (!data.location) {
+              const lines = String(act[0].body || '').split('
+');
+              for (const line of lines) {
+                if (line.startsWith('Location: ')) data.location = line.replace('Location: ', '').trim();
+              }
+              if (!data.location) data.location = `${Number(act[0].latitude).toFixed(5)}, ${Number(act[0].longitude).toFixed(5)}`;
+            }
+          }
+        } catch (_) {}
+      }
+      return res.json({ success: true, data });
+    }
   }
 
   const lead = store.leads.find(l => l.id === id);

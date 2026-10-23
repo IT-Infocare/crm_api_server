@@ -102,10 +102,6 @@ const getPipelineHandler = async (req, res) => {
           });
 
           let currentStage = l.stage || 'new';
-          if (hasPendingSiteSurvey) {
-            currentStage = 'site_survey';
-            supabase.from('leads').update({ stage: 'site_survey' }).eq('id', l.id).then(() => {}).catch(() => {});
-          }
 
           return {
             id: l.id,
@@ -144,10 +140,6 @@ const getPipelineHandler = async (req, res) => {
     );
 
     let currentStage = l.stage || 'new';
-    if (hasPendingSiteSurvey) {
-      currentStage = 'site_survey';
-      l.stage = 'site_survey';
-    }
 
     return {
       id: l.id,

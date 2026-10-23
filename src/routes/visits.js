@@ -80,18 +80,49 @@ function visitFromPayload(payload, id) {
 // lead: use the given lead_id, else the newest lead with the same phone or
 // contact + company, else create a direct-visit lead for it.
 async function findOrCreateLeadId(v, branchId) {
-  if (isUUID(v.lead_id)) return v.lead_id;
+  const lat = v.latitude != null && v.latitude !== '' ? Number(v.latitude) : null;
+  const lon = v.longitude != null && v.longitude !== '' ? Number(v.longitude) : null;
+  const validLat = lat != null && !isNaN(lat) ? lat : null;
+  const validLon = lon != null && !isNaN(lon) ? lon : null;
+
+  let leadLocation = (v.location_address || '').trim();
+  if (!leadLocation && validLat != null && validLon != null) {
+    leadLocation = `${validLat.toFixed(5)}, ${validLon.toFixed(5)}`;
+  }
+
+  const updateLeadGps = async (leadId) => {
+    if (validLat != null && validLon != null) {
+      try {
+        const updateData = { latitude: validLat, longitude: validLon };
+        if (leadLocation) updateData.location = leadLocation;
+        await supabase.from('leads').update(updateData).eq('id', leadId);
+      } catch (err) {
+        console.warn('[Update Lead GPS Warning]:', err.message);
+      }
+    }
+  };
+
+  if (isUUID(v.lead_id)) {
+    await updateLeadGps(v.lead_id);
+    return v.lead_id;
+  }
 
   if (v.mobile) {
-    const { data } = await supabase.from('leads').select('id').eq('phone', v.mobile)
+    const { data } = await supabase.from('leads').select('id, location, latitude, longitude').eq('phone', v.mobile)
       .order('created_at', { ascending: false }).limit(1);
-    if (data && data.length) return data[0].id;
+    if (data && data.length) {
+      await updateLeadGps(data[0].id);
+      return data[0].id;
+    }
   }
   if (v.contact_name) {
-    let q = supabase.from('leads').select('id').eq('contact_name', v.contact_name);
+    let q = supabase.from('leads').select('id, location, latitude, longitude').eq('contact_name', v.contact_name);
     if (v.company_or_site) q = q.eq('company_name', v.company_or_site);
     const { data } = await q.order('created_at', { ascending: false }).limit(1);
-    if (data && data.length) return data[0].id;
+    if (data && data.length) {
+      await updateLeadGps(data[0].id);
+      return data[0].id;
+    }
   }
 
   const lat = v.latitude != null && v.latitude !== '' ? Number(v.latitude) : null;
