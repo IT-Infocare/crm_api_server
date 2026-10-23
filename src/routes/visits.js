@@ -125,16 +125,6 @@ async function findOrCreateLeadId(v, branchId) {
     }
   }
 
-  const lat = v.latitude != null && v.latitude !== '' ? Number(v.latitude) : null;
-  const lon = v.longitude != null && v.longitude !== '' ? Number(v.longitude) : null;
-  const validLat = lat != null && !isNaN(lat) ? lat : null;
-  const validLon = lon != null && !isNaN(lon) ? lon : null;
-
-  let leadLocation = (v.location_address || '').trim();
-  if (!leadLocation && validLat != null && validLon != null) {
-    leadLocation = `${validLat.toFixed(5)}, ${validLon.toFixed(5)}`;
-  }
-
   const requirement = [(v.interests || []).join(', '), v.notes].filter(Boolean).join(' - ') || 'Field visit';
   const { data, error } = await supabase.from('leads').insert([{
     branch_id: branchId,

@@ -19,6 +19,7 @@ const userRoutes = require('./routes/users');
 
 const branchRoutes = require('./routes/branches');
 const companyRoutes = require('./routes/companies');
+const aiRoutes = require('./routes/ai');
 
 const app = express();
 
@@ -62,6 +63,7 @@ app.use(prefix + '/dashboard', dashboardRoutes);
 app.use(prefix + '/reports', reportRoutes);
 app.use(prefix + '/settings', settingsRoutes);
 app.use(prefix + '/files', fileRoutes);
+app.use(prefix + '/ai', aiRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

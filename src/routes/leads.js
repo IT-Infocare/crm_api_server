@@ -122,8 +122,7 @@ router.get('/:id', async (req, res) => {
             if (data.latitude == null) data.latitude = Number(act[0].latitude);
             if (data.longitude == null) data.longitude = Number(act[0].longitude);
             if (!data.location) {
-              const lines = String(act[0].body || '').split('
-');
+              const lines = String(act[0].body || '').split('\n');
               for (const line of lines) {
                 if (line.startsWith('Location: ')) data.location = line.replace('Location: ', '').trim();
               }
