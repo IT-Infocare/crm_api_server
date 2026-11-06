@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow, sendUpdateFailure } = require('../utils/dbUpdate');
+const mailer = require('../utils/mailer');
 const { resolveBranchId, normalizeLeadSource, normalizeLeadStage, normalizeActivityType } = require('../utils/normalize');
 
 // GET /api/leads - List leads with search, filter, pagination
@@ -435,6 +437,37 @@ router.put('/:id', async (req, res) => {
 
   store.leads[index] = { ...store.leads[index], ...payload };
   return res.json({ success: true, message: 'Lead updated successfully', data: store.leads[index] });
+});
+
+// POST /api/leads/:id/send-email - send an email to the lead/customer on behalf of the current user
+router.post('/:id/send-email', async (req, res) => {
+  const { to, subject, body, sender_name, sender_email } = req.body || {};
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!to || !emailRe.test(String(to).trim())) {
+    return res.status(400).json({ success: false, message: 'A valid recipient email address is required' });
+  }
+  if (!body || !String(body).trim()) {
+    return res.status(400).json({ success: false, message: 'Email message is empty' });
+  }
+  if (!mailer.isConfigured()) {
+    return res.status(503).json({
+      success: false,
+      message: 'Email sending is not configured on the server. Set SMTP_HOST, SMTP_USER, SMTP_PASS (and SMTP_FROM) on the API host.',
+    });
+  }
+  try {
+    await mailer.sendLeadEmail({
+      to: String(to).trim(),
+      subject: String(subject || '').trim() || 'Follow-up from Infocare',
+      body: String(body),
+      senderName: sender_name,
+      senderEmail: emailRe.test(String(sender_email || '').trim()) ? String(sender_email).trim() : null,
+    });
+    return res.json({ success: true, message: `Email sent to ${String(to).trim()}` });
+  } catch (err) {
+    console.error('[Send Email Error]:', err.message);
+    return res.status(502).json({ success: false, message: `Email could not be sent: ${err.message}` });
+  }
 });
 
 // PATCH /api/leads/:id/status - Update lead status

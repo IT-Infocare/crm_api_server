@@ -31,4 +31,22 @@ async function sendResetCode(to, name, code) {
   });
 }
 
-module.exports = { isConfigured, sendResetCode };
+/**
+ * Send a user-drafted email. The mailbox itself is the company SMTP account, but the
+ * message is sent in the current user's name, replies go to the user, and the user is CC'd.
+ */
+async function sendLeadEmail({ to, subject, body, senderName, senderEmail }) {
+  const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const addr = (smtpFrom.match(/<([^>]+)>/) || [null, smtpFrom])[1];
+  const name = String(senderName || '').replace(/["<>\r\n]/g, '').trim();
+  await getTransporter().sendMail({
+    from: name ? `"${name} - Infocare" <${addr}>` : smtpFrom,
+    replyTo: senderEmail || undefined,
+    cc: senderEmail || undefined,
+    to,
+    subject,
+    text: body,
+  });
+}
+
+module.exports = { isConfigured, sendResetCode, sendLeadEmail };
