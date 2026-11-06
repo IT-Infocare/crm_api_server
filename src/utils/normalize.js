@@ -107,6 +107,7 @@ function normalizeActivityType(type) {
 
 module.exports = {
   isUUID,
+  getBranches,
   resolveBranchId,
   branchNameFor,
   normalizeLeadSource,

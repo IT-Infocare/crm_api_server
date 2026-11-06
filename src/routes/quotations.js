@@ -7,18 +7,84 @@ const { isUUID, resolveBranchId } = require('../utils/normalize');
 
 const QUOTE_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'accepted', 'rejected', 'expired'];
 
-// GET /api/quotations - List quotations
+const { getBranches } = require('../utils/normalize');
+
+// Map a Supabase quotations row (real schema) to the shape the apps expect.
+function mapQuotation(row, branchById = {}, lines = []) {
+  const branch = branchById[row.branch_id];
+  const subtotal = Number(row.subtotal_aed ?? 0);
+  return {
+    id: row.id,
+    quotation_number: row.number || '',
+    version: row.version || 1,
+    status: row.status,
+    valid_until: row.valid_until,
+    customer_id: row.contact_id || null,
+    customer_name: row.customer_name || (row.deals && row.deals.name) || '',
+    lead_id: row.deals ? row.deals.lead_id : null,
+    deal_id: row.deal_id,
+    prepared_by: (row.creator && row.creator.full_name) || '',
+    terms: row.terms,
+    subtotal,
+    vat_amount: Number(row.vat_aed ?? 0),
+    total_amount: Number(row.total_aed ?? 0),
+    pdf_url: row.pdf_path || null,
+    is_ai_draft: !!row.ai_drafted,
+    branch: branch ? (branch.short_name || branch.code || branch.name) : '',
+    items: lines.map((l) => ({
+      id: l.id,
+      quotation_id: l.quotation_id,
+      product_id: l.product_id,
+      product_name: l.description,
+      description: l.description,
+      quantity: Number(l.qty),
+      unit_price: Number(l.unit_price || 0),
+      discount: Number(l.discount_pct || 0),
+      line_total: Number(l.line_total || 0),
+      sort_order: l.sort_order,
+    })),
+    created_at: row.created_at,
+  };
+}
+
+async function branchIdsFor(branchParam) {
+  // Accepts one branch or a comma-separated list; returns null for "no filter".
+  if (!branchParam || branchParam === 'All') return null;
+  const names = String(branchParam).split(',').map((n) => n.trim()).filter(Boolean);
+  const ids = [];
+  for (const n of names) {
+    const all = await getBranches(supabase);
+    const lower = n.toLowerCase();
+    const hit = all.find((b) => b.id === n || [b.code, b.name, b.city, b.short_name].some((v) => v && v.toLowerCase() === lower));
+    if (hit) ids.push(hit.id);
+  }
+  return ids; // may be empty => matches nothing
+}
+
+// GET /api/quotations - List quotations (optionally ?branch=A,B&status=&search=)
 router.get('/', async (req, res) => {
-  const { search, status } = req.query;
+  const { search, status, branch } = req.query;
   if (supabase) {
     try {
-      let query = supabase.from('quotations').select('*');
-      if (search) query = query.or(`number.ilike.%${search}%,terms.ilike.%${search}%`);
+      const branches = await getBranches(supabase);
+      const branchById = Object.fromEntries(branches.map((b) => [b.id, b]));
+      let query = supabase.from('quotations').select('*, deals(name, lead_id)').order('created_at', { ascending: false });
       if (status && status !== 'All') query = query.eq('status', status.toLowerCase());
+      if (search) query = query.ilike('number', `%${search}%`);
+      const ids = await branchIdsFor(branch);
+      if (ids) {
+        if (ids.length === 0) return res.json({ success: true, data: [] });
+        query = query.in('branch_id', ids);
+      }
       const { data, error } = await query;
-      if (!error && data && data.length > 0) return res.json({ success: true, data });
+      if (error) {
+        console.error('[Supabase quotation query error]:', error.message);
+        return res.status(500).json({ success: false, message: 'Failed to load quotations', details: error.message });
+      }
+      return res.json({ success: true, data: (data || []).map((r) => mapQuotation(r, branchById)) });
     } catch (e) {
-      console.warn('[Supabase quotation query error]:', e.message);
+      console.error('[Supabase quotation query error]:', e.message);
+      return res.status(500).json({ success: false, message: 'Failed to load quotations', details: e.message });
     }
   }
 
@@ -27,8 +93,7 @@ router.get('/', async (req, res) => {
     const q = search.toLowerCase();
     list = list.filter(qItem =>
       (qItem.quotation_number && qItem.quotation_number.toLowerCase().includes(q)) ||
-      (qItem.customer_name && qItem.customer_name.toLowerCase().includes(q)) ||
-      (qItem.company && qItem.company.toLowerCase().includes(q))
+      (qItem.customer_name && qItem.customer_name.toLowerCase().includes(q))
     );
   }
   if (status && status !== 'All') {
@@ -41,10 +106,18 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
   if (supabase) {
+    if (!isUUID(id)) return res.status(404).json({ success: false, message: 'Quotation not found' });
     try {
-      const { data, error } = await supabase.from('quotations').select('*').eq('id', id).single();
-      if (!error && data) return res.json({ success: true, data });
-    } catch (e) {}
+      const branches = await getBranches(supabase);
+      const branchById = Object.fromEntries(branches.map((b) => [b.id, b]));
+      const { data, error } = await supabase.from('quotations').select('*, deals(name, lead_id)').eq('id', id).maybeSingle();
+      if (error) return res.status(500).json({ success: false, message: error.message });
+      if (!data) return res.status(404).json({ success: false, message: 'Quotation not found' });
+      const { data: lines } = await supabase.from('quotation_lines').select('*').eq('quotation_id', id).order('sort_order');
+      return res.json({ success: true, data: mapQuotation(data, branchById, lines || []) });
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
+    }
   }
   const q = store.quotations.find(item => item.id === id);
   if (!q) return res.status(404).json({ success: false, message: 'Quotation not found' });
@@ -138,8 +211,13 @@ router.delete('/:id', async (req, res) => {
 });
 
 // POST /api/quotations/:id/submit-approval
-router.post('/:id/submit-approval', (req, res) => {
+router.post('/:id/submit-approval', async (req, res) => {
   const { id } = req.params;
+  if (supabase) {
+    const result = await updateRow(supabase, 'quotations', id, { status: 'pending_approval' });
+    if (result.data) return res.json({ success: true, message: 'Quotation updated', data: result.data });
+    return sendUpdateFailure(res, 'Quotation', result);
+  }
   const q = store.quotations.find(item => item.id === id);
   if (!q) return res.status(404).json({ success: false, message: 'Quotation not found' });
   q.status = 'pending_approval';
@@ -147,8 +225,13 @@ router.post('/:id/submit-approval', (req, res) => {
 });
 
 // POST /api/quotations/:id/approve
-router.post('/:id/approve', (req, res) => {
+router.post('/:id/approve', async (req, res) => {
   const { id } = req.params;
+  if (supabase) {
+    const result = await updateRow(supabase, 'quotations', id, { status: 'approved' });
+    if (result.data) return res.json({ success: true, message: 'Quotation updated', data: result.data });
+    return sendUpdateFailure(res, 'Quotation', result);
+  }
   const q = store.quotations.find(item => item.id === id);
   if (!q) return res.status(404).json({ success: false, message: 'Quotation not found' });
   q.status = 'approved';
@@ -156,8 +239,13 @@ router.post('/:id/approve', (req, res) => {
 });
 
 // POST /api/quotations/:id/send
-router.post('/:id/send', (req, res) => {
+router.post('/:id/send', async (req, res) => {
   const { id } = req.params;
+  if (supabase) {
+    const result = await updateRow(supabase, 'quotations', id, { status: 'sent' });
+    if (result.data) return res.json({ success: true, message: 'Quotation updated', data: result.data });
+    return sendUpdateFailure(res, 'Quotation', result);
+  }
   const q = store.quotations.find(item => item.id === id);
   if (!q) return res.status(404).json({ success: false, message: 'Quotation not found' });
   q.status = 'sent';

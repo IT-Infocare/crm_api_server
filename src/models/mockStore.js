@@ -253,6 +253,13 @@ let visits = [
   }
 ];
 
+// When a real database is connected, never serve the built-in sample records
+// unless ENABLE_MOCK_FALLBACK=true is set explicitly.
+const { supabase: _db } = require('../config/db');
+if (_db && process.env.ENABLE_MOCK_FALLBACK !== 'true') {
+  [visits, leads, customers, quotations, deals, tasks, campaigns, products, activities, users].forEach((arr) => arr.splice(0, arr.length));
+}
+
 module.exports = {
   visits,
   leads,

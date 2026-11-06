@@ -435,9 +435,9 @@ router.get('/briefing', (req, res) => {
     success: true,
     data: {
       greeting: 'Good Morning',
-      ai_summary: 'You have active leads requiring follow-up and pending quotations in your branch.',
-      urgent_leads_count: 2,
-      pending_approvals_count: 1
+      ai_summary: '',
+      urgent_leads_count: 0,
+      pending_approvals_count: 0
     }
   });
 });
