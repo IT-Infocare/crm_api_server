@@ -65,6 +65,7 @@ router.post('/', async (req, res) => {
     address: payload.address || '',
     designation: payload.designation || '',
     contact_number_2: payload.contact_number_2 || '',
+    contact_name_2: payload.contact_name_2 || '',
     designation_2: payload.designation_2 || '',
     mobile_number_2: payload.mobile_number_2 || '',
     remarks: payload.remarks || '',
