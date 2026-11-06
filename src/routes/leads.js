@@ -424,6 +424,17 @@ router.put('/:id', async (req, res) => {
     for (const [k, v] of Object.entries(payload)) {
       if (LEAD_COLUMNS.has(k) && k !== 'id' && k !== 'created_at') update[k] = v;
     }
+    // product_interest is a text[] column; accept a string ("a, b" or "[a, b]") or an array.
+    if ('product_interest' in update) {
+      const pi = update.product_interest;
+      if (Array.isArray(pi)) {
+        update.product_interest = pi.map((x) => String(x).trim()).filter(Boolean);
+      } else if (pi == null || String(pi).trim() === '') {
+        update.product_interest = null;
+      } else {
+        update.product_interest = String(pi).replace(/^\[|\]$/g, '').split(',').map((x) => x.trim()).filter(Boolean);
+      }
+    }
     if (update.branch_id || update.branch) {
       update.branch_id = await resolveBranchId(supabase, update.branch_id || update.branch);
     }

@@ -28,7 +28,7 @@ async function updateRow(supabase, table, id, payload, { select = '*', idColumn 
       const m = /Could not find the '(.+?)' column/.exec(text);
       if (m && m[1] in sanitized) dropped = m[1];
     } else if (error.code === '22P02') {
-      const m = /invalid input (?:syntax for type|value for enum) (?:.+?): "(.*?)"/.exec(text);
+      const m = /(?:invalid input (?:syntax for type|value for enum) (?:.+?)|malformed array literal): "(.*?)"/.exec(text);
       if (m) dropped = Object.keys(sanitized).find((k) => String(sanitized[k]) === m[1]) || null;
     } else if (error.code === '23503') {
       const m = /Key \((.+?)\)=/.exec(text);
