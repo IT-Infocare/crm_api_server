@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
       const { data, count, error } = await query.range(from, to).order('created_at', { ascending: false });
 
       if (!error && data) {
-        if (data.length > 0 || process.env.ENABLE_MOCK_FALLBACK !== 'true') {
+        if (true) { // DB is source of truth; never substitute demo data
           return res.json({
             success: true,
             data,
@@ -425,11 +425,9 @@ router.put('/:id', async (req, res) => {
     if (update.branch_id || update.branch) {
       update.branch_id = await resolveBranchId(supabase, update.branch_id || update.branch);
     }
-    const { data, error } = await supabase.from('leads').update(update).eq('id', id).select().single();
-    if (!error && data) return res.json({ success: true, message: 'Lead updated successfully', data });
-    if (error && error.code !== 'PGRST116' && error.code !== '22P02') {
-      console.error('[Supabase Lead Update Error]:', error.code, error.message);
-    }
+    const result = await updateRow(supabase, 'leads', id, update);
+    if (result.data) return res.json({ success: true, message: 'Lead updated successfully', data: result.data });
+    return sendUpdateFailure(res, 'Lead', result);
   }
 
   const index = store.leads.findIndex(l => l.id === id);
@@ -445,8 +443,9 @@ router.patch('/:id/status', async (req, res) => {
   const { status } = req.body;
 
   if (supabase) {
-    const { data, error } = await supabase.from('leads').update({ status }).eq('id', id).select().single();
-    if (!error && data) return res.json({ success: true, message: 'Lead status updated', data });
+    const result = await updateRow(supabase, 'leads', id, { status });
+    if (result.data) return res.json({ success: true, message: 'Lead status updated', data: result.data });
+    return sendUpdateFailure(res, 'Lead', result);
   }
 
   const lead = store.leads.find(l => l.id === id);

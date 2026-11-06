@@ -175,7 +175,7 @@ router.get('/', async (req, res) => {
       if (branch && branch !== 'All') query = query.eq('branch_id', await resolveBranchId(supabase, branch));
       const { data, error } = await query;
       if (error) console.warn('[Supabase Visits Query Notice]:', error.message);
-      if (!error && data && (data.length > 0 || process.env.ENABLE_MOCK_FALLBACK !== 'true')) {
+      if (!error && data && true) {
         let list = await Promise.all(data.map(activityToVisit));
         if (search) {
           const q = search.toLowerCase();

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow, sendUpdateFailure } = require('../utils/dbUpdate');
 
 // GET /api/customers - List customers
 router.get('/', async (req, res) => {
@@ -14,9 +15,7 @@ router.get('/', async (req, res) => {
       if (branch && branch !== 'All') query = query.eq('branch', branch);
       const { data, error } = await query;
       if (!error && data) {
-        if (data.length > 0 || process.env.ENABLE_MOCK_FALLBACK !== 'true') {
-          return res.json({ success: true, data });
-        }
+        return res.json({ success: true, data });
       }
     } catch (e) {
       console.error('Supabase customer query error:', e);
@@ -64,6 +63,11 @@ router.post('/', async (req, res) => {
     branch: payload.branch || 'Dubai',
     emirate: payload.emirate || 'Dubai',
     address: payload.address || '',
+    designation: payload.designation || '',
+    contact_number_2: payload.contact_number_2 || '',
+    designation_2: payload.designation_2 || '',
+    mobile_number_2: payload.mobile_number_2 || '',
+    remarks: payload.remarks || '',
     total_revenue: parseFloat(payload.total_revenue) || 0,
     total_deals: parseInt(payload.total_deals, 10) || 0,
     created_at: payload.created_at || new Date().toISOString(),
@@ -105,8 +109,9 @@ router.put('/:id', async (req, res) => {
   const payload = req.body;
 
   if (supabase) {
-    const { data, error } = await supabase.from('customers').update(payload).eq('id', id).select().single();
-    if (!error && data) return res.json({ success: true, message: 'Customer updated successfully', data });
+    const result = await updateRow(supabase, 'customers', id, payload);
+    if (result.data) return res.json({ success: true, message: 'Customer updated successfully', data: result.data });
+    return sendUpdateFailure(res, 'Customer', result);
   }
 
   const index = store.customers.findIndex(c => c.id === id);

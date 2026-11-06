@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow, sendUpdateFailure } = require('../utils/dbUpdate');
 const { isUUID, resolveBranchId } = require('../utils/normalize');
 
 const QUOTE_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'accepted', 'rejected', 'expired'];
@@ -71,6 +72,8 @@ router.post('/', async (req, res) => {
     total_amount: payload.total_amount || payload.totalAmount || 0,
     items_count: payload.items_count || payload.itemsCount || 1,
     items: payload.items || [],
+    client_email: payload.client_email || '',
+    deal_id: payload.deal_id,
     created_at: payload.created_at || new Date().toISOString()
   };
 
@@ -107,9 +110,9 @@ router.put('/:id', async (req, res) => {
   const payload = req.body;
 
   if (supabase) {
-    try {
-      await supabase.from('quotations').update(payload).eq('id', id);
-    } catch (e) {}
+    const result = await updateRow(supabase, 'quotations', id, payload);
+    if (result.data) return res.json({ success: true, message: 'Quotation updated successfully', data: result.data });
+    return sendUpdateFailure(res, 'Quotation', result);
   }
 
   const index = store.quotations.findIndex(q => q.id === id);

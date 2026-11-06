@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow } = require('../utils/dbUpdate');
 const { isUUID, resolveBranchId, normalizeLeadStage } = require('../utils/normalize');
 
 const DEAL_STAGES = ['site_survey', 'quotation_sent', 'negotiation', 'won', 'lost'];
@@ -232,10 +233,13 @@ const updateDealHandler = async (req, res) => {
 
   if (supabase) {
     try {
-      await supabase.from('deals').update(payload).eq('id', id);
+      const result = await updateRow(supabase, 'deals', id, payload);
+      if (result.data) return res.json({ success: true, message: 'Deal updated successfully', data: result.data });
+      if (result.error) console.warn('[Supabase Deals Update Warning]:', result.error.code, result.error.message);
     } catch (e) {
       console.warn('[Supabase Deals Update Warning]:', e.message);
     }
+    // Pipeline "deals" may be backed by leads; fall through to the lead/store handling below.
   }
 
   const index = store.deals.findIndex(d => d.id === id);

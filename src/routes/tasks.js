@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow, sendUpdateFailure } = require('../utils/dbUpdate');
 const { isUUID, resolveBranchId } = require('../utils/normalize');
 
 // GET /api/tasks - List tasks
@@ -108,9 +109,9 @@ router.put('/:id', async (req, res) => {
   const payload = req.body;
 
   if (supabase) {
-    try {
-      await supabase.from('tasks').update(payload).eq('id', id);
-    } catch (e) {}
+    const result = await updateRow(supabase, 'tasks', id, payload);
+    if (result.data) return res.json({ success: true, message: 'Task updated successfully', data: result.data });
+    return sendUpdateFailure(res, 'Task', result);
   }
 
   const index = store.tasks.findIndex(t => t.id === id);
@@ -125,9 +126,9 @@ router.patch('/:id/status', async (req, res) => {
   const { status, is_completed } = req.body;
 
   if (supabase) {
-    try {
-      await supabase.from('tasks').update({ status }).eq('id', id);
-    } catch (e) {}
+    const result = await updateRow(supabase, 'tasks', id, { status });
+    if (result.data) return res.json({ success: true, message: 'Task status updated', data: result.data });
+    return sendUpdateFailure(res, 'Task', result);
   }
 
   const task = store.tasks.find(t => t.id === id);

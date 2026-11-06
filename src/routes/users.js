@@ -3,6 +3,9 @@ const router = express.Router();
 const { randomUUID } = require('crypto');
 const store = require('../models/mockStore');
 const { supabase } = require('../config/db');
+const { updateRow, sendUpdateFailure } = require('../utils/dbUpdate');
+
+const USER_SELECT = 'id, username, name, email, role, branch, branches, phone, created_at';
 
 const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
@@ -10,8 +13,8 @@ const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 router.get('/', async (req, res) => {
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('users').select('id, username, name, email, role, branch, phone, created_at');
-      if (!error && data && data.length > 0) {
+      const { data, error } = await supabase.from('users').select(USER_SELECT);
+      if (!error && data) {
         return res.json({ success: true, data });
       }
     } catch (err) {
@@ -35,13 +38,14 @@ router.post('/', async (req, res) => {
     password: payload.password || 'Info@1234',
     role: payload.role || 'Sales Representative',
     branch: payload.branch || 'Dubai',
+    branches: Array.isArray(payload.branches) ? payload.branches.map(String) : (payload.branch ? String(payload.branch).split(',').map(b => b.trim()).filter(Boolean) : []),
     phone: payload.phone || '',
     created_at: new Date().toISOString(),
   };
 
   if (supabase) {
     let sanitized = { ...newUser };
-    let { data, error } = await supabase.from('users').insert([sanitized]).select('id, username, name, email, role, branch, phone, created_at').single();
+    let { data, error } = await supabase.from('users').insert([sanitized]).select(USER_SELECT).single();
 
     let maxRetries = 5;
     while (error && maxRetries > 0) {
@@ -54,7 +58,7 @@ router.post('/', async (req, res) => {
         } else break;
       } else break;
 
-      const retry = await supabase.from('users').insert([sanitized]).select('id, username, name, email, role, branch, phone, created_at').single();
+      const retry = await supabase.from('users').insert([sanitized]).select(USER_SELECT).single();
       data = retry.data;
       error = retry.error;
     }
@@ -76,8 +80,9 @@ router.put('/:id', async (req, res) => {
   const payload = req.body;
 
   if (supabase) {
-    const { data, error } = await supabase.from('users').update(payload).eq('id', id).select('id, username, name, email, role, branch, phone, created_at').single();
-    if (!error && data) return res.json({ success: true, message: 'User updated successfully', data });
+    const result = await updateRow(supabase, 'users', id, payload, { select: USER_SELECT });
+    if (result.data) return res.json({ success: true, message: 'User updated successfully', data: result.data });
+    return sendUpdateFailure(res, 'User', result);
   }
 
   const index = (store.users || []).findIndex(u => u.id === id);
