@@ -69,6 +69,7 @@ router.post('/', async (req, res) => {
     designation_2: payload.designation_2 || '',
     mobile_number_2: payload.mobile_number_2 || '',
     remarks: payload.remarks || '',
+    industry_id: isUUID(payload.industry_id) ? payload.industry_id : null,
     total_revenue: parseFloat(payload.total_revenue) || 0,
     total_deals: parseInt(payload.total_deals, 10) || 0,
     created_at: payload.created_at || new Date().toISOString(),

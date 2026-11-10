@@ -19,6 +19,7 @@ const userRoutes = require('./routes/users');
 
 const branchRoutes = require('./routes/branches');
 const companyRoutes = require('./routes/companies');
+const industryRoutes = require('./routes/industries');
 const aiRoutes = require('./routes/ai');
 
 const app = express();
@@ -48,6 +49,7 @@ app.use(prefix + '/auth', authRoutes);
 app.use(prefix + '/users', userRoutes);
 app.use(prefix + '/companies', companyRoutes);
 app.use(prefix + '/branches', branchRoutes);
+app.use(prefix + '/industries', industryRoutes);
 app.use(prefix + '/settings/branches', branchRoutes);
 app.use(prefix + '/leads', leadRoutes);
 app.use(prefix + '/customers', customerRoutes);

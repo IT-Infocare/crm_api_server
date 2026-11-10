@@ -150,7 +150,7 @@ const LEAD_COLUMNS = new Set([
   'source', 'source_detail', 'external_ref', 'status', 'owner_id', 'ai_summary', 'ai_category', 'ai_urgency',
   'duplicate_of', 'first_response_at', 'latitude', 'longitude', 'created_at', 'customer_id', 'contact_name',
   'company_name', 'phone', 'email', 'whatsapp_number', 'location', 'campaign', 'captured_by', 'owner_name',
-  'branch', 'estimated_value', 'stage', 'ai_next_step', 'ai_draft_reply', 'is_duplicate',
+  'branch', 'estimated_value', 'stage', 'ai_next_step', 'ai_draft_reply', 'is_duplicate', 'industry_id',
 ]);
 
 function deriveStatusFromStage(stage) {
@@ -189,6 +189,7 @@ router.post('/', async (req, res) => {
       phone: payload.phone || '',
       whatsapp_number: payload.whatsapp_number || payload.phone || '',
       branch: payload.branch || 'Dubai',
+      ...(isUUID(payload.industry_id) ? { industry_id: payload.industry_id } : {}),
       created_at: new Date().toISOString()
     };
 
@@ -274,6 +275,7 @@ router.post('/', async (req, res) => {
   if (isUUID(customerId)) newLead.customer_id = customerId;
   if (isUUID(payload.owner_id)) newLead.owner_id = payload.owner_id;
   if (isUUID(payload.branch_id)) newLead.branch_id = payload.branch_id;
+  if (isUUID(payload.industry_id)) newLead.industry_id = payload.industry_id;
 
   if (supabase) {
     // 1. branch_id is NOT NULL + FK in Supabase: resolve it from the UUID or branch name.
