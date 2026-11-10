@@ -751,10 +751,14 @@ router.delete('/:id/activities/:activityId', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   if (supabase) {
-    try {
-      await supabase.from('leads').delete().eq('id', id);
-    } catch (e) {
-      console.warn('[Supabase Lead Delete Warning]:', e.message);
+    // Clear child rows that would block the delete (ignore tables/columns that don't exist).
+    for (const table of ['activities', 'tasks']) {
+      try { await supabase.from(table).delete().eq('lead_id', id); } catch (e) { /* ignore */ }
+    }
+    const { error } = await supabase.from('leads').delete().eq('id', id);
+    if (error) {
+      console.warn('[Supabase Lead Delete Error]:', error.message);
+      return res.status(400).json({ success: false, message: error.message });
     }
   }
 
